@@ -1,0 +1,17 @@
+[package]
+name = "copter_defs"
+version = "0.1.0"
+authors = ["KnobY <maximilian.brinkmann@posteo.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+heapless = "0.5.2"
+
+[dependencies.rc_framing]
+path = "../rc_framing"
+
+[dependencies.nalgebra]
+default-features = false
+version = "0.19.0"
