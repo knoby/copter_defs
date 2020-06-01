@@ -4,10 +4,12 @@ version = "0.1.0"
 authors = ["KnobY <maximilian.brinkmann@posteo.de>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+no_std = ["heapless", "rc_framing/no_std"]
 
 [dependencies]
-heapless = "0.5.2"
+heapless = {version="0.5.2", optional=true}
 
 [dependencies.rc_framing]
 path = "../rc_framing"

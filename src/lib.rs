@@ -1,6 +1,5 @@
-#![no_std]
-
-use heapless::consts::U32;
+// Disable std if no_std crate
+#![cfg_attr(feature = "no_std", no_std)]
 
 // Definition of the Motor Position
 #[derive(Clone, Copy, Debug)]
@@ -66,7 +65,8 @@ pub enum Command {
 impl Command {
     /// Convert to a byte array representation. Returns Err if for some reason the byte could not
     /// be pushed to the vector
-    fn to_byte_array(self, out: &mut heapless::Vec<u8, U32>) -> Result<(), ()> {
+    #[cfg(feature = "no_std")]
+    fn to_vec(self, out: &mut heapless::Vec<u8, heapless::consts::U32>) -> Result<(), ()> {
         // Clear the Vecotr
         out.clear();
 
@@ -86,6 +86,29 @@ impl Command {
         };
 
         Ok(())
+    }
+
+    /// Convert to a byte array representation.
+    #[cfg(not(feature = "no_std"))]
+    fn to_vec(self) -> Vec<u8> {
+        // Clear the Vecotr
+        let mut out = Vec::new();
+
+        // Add the Cmd Identifyer
+        out.push(self.into());
+
+        use Command::*;
+        match self {
+            ToggleLed | GetMotionState => (), // No additional Info
+            StartMotor(motor) | StopMotor(motor) => out.push(motor.into()), // Just add the Motor Number
+            SendMotionState(angle_vel) => angle_vel.iter().for_each(|vel| {
+                vel.to_bits()
+                    .to_be_bytes()
+                    .iter()
+                    .for_each(|byte| out.push(*byte))
+            }),
+        };
+        out
     }
 
     /// Convert a given array to a Command. Returns Err if length is not correct or an error occured
@@ -135,8 +158,9 @@ impl Command {
     }
 
     /// Convert from a slip coded slice of bytes to a Command
-    pub fn from_slip(input: &heapless::Vec<u8, U32>) -> Result<Self, ()> {
-        let mut decoded_bytes = heapless::Vec::<u8, U32>::new();
+    #[cfg(feature = "no_std")]
+    pub fn from_slip(input: &heapless::Vec<u8, heapless::consts::U32>) -> Result<Self, ()> {
+        let mut decoded_bytes = heapless::Vec::<u8, heapless::consts::U32>::new();
 
         // Decode Slip
         rc_framing::framing::decode(input, &mut decoded_bytes)?;
@@ -145,17 +169,41 @@ impl Command {
         Command::from_byte_array(&decoded_bytes)
     }
 
+    /// Convert from a slip coded vector of bytes to a Command
+    #[cfg(not(feature = "no_std"))]
+    pub fn from_slip(input: &Vec<u8>) -> Result<Self, ()> {
+        // Decode Slip
+        let decoded_bytes = rc_framing::framing::decode(input)?;
+
+        // Convert to Command
+        Command::from_byte_array(&decoded_bytes)
+    }
+
     /// Convert a Command to bytes. Fails if the target Vector is not long enough.
-    pub fn to_slip(self, output: &mut heapless::Vec<u8, U32>) -> Result<usize, ()> {
-        let mut bytes = heapless::Vec::<u8, U32>::new();
+    #[cfg(feature = "no_std")]
+    pub fn to_slip(
+        self,
+        output: &mut heapless::Vec<u8, heapless::consts::U32>,
+    ) -> Result<usize, ()> {
+        let mut bytes = heapless::Vec::<u8, heapless::consts::U32>::new();
 
         // Convert to Array
-        self.to_byte_array(&mut bytes)?;
+        self.to_vec(&mut bytes)?;
 
         // Encode with SLIP
         rc_framing::framing::encode(&bytes, output)?;
 
         Ok(output.len())
+    }
+
+    /// Convert a Command to bytes. Fails if the target Vector is not long enough.
+    #[cfg(not(feature = "no_std"))]
+    pub fn to_slip(self) -> Vec<u8> {
+        // Convert to Array
+        let bytes = self.to_vec();
+
+        // Encode with SLIP
+        rc_framing::framing::encode(&bytes)
     }
 }
 
