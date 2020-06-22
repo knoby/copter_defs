@@ -15,6 +15,15 @@ pub enum MotorPosition {
     All,
 }
 
+#[derive(Debug, Default)]
+pub struct MotorState {
+    pub front_left: f32,
+    pub front_right: f32,
+    pub rear_left: f32,
+    pub rear_right: f32,
+    pub armed: bool,
+}
+
 impl core::convert::Into<u8> for MotorPosition {
     fn into(self) -> u8 {
         use MotorPosition::*;
@@ -55,10 +64,10 @@ impl core::convert::TryFrom<u8> for MotorPosition {
 /// List of possible Commands for serial communication
 #[derive(Clone, Copy, Debug)]
 pub enum Command {
-    StartMotor(MotorPosition),
-    StopMotor(MotorPosition),
+    StartMotor,
+    StopMotor,
     GetMotionState,
-    SendMotionState(nalgebra::Vector3<f32>),
+    SendMotionState(nalgebra::Vector3<f32>, bool),
     ToggleLed,
 }
 
@@ -76,13 +85,16 @@ impl Command {
         use Command::*;
         match self {
             ToggleLed | GetMotionState => (), // No additional Info
-            StartMotor(motor) | StopMotor(motor) => out.push(motor.into()).map_err(|_| ())?, // Just add the Motor Number
-            SendMotionState(angle_vel) => angle_vel.iter().try_for_each(|vel| {
-                vel.to_bits()
-                    .to_be_bytes()
-                    .iter()
-                    .try_for_each(|byte| out.push(*byte).map_err(|_| ()))
-            })?,
+            StartMotor | StopMotor => (),
+            SendMotionState(angle_vel, armed) => {
+                angle_vel.iter().try_for_each(|vel| {
+                    vel.to_bits()
+                        .to_be_bytes()
+                        .iter()
+                        .try_for_each(|byte| out.push(*byte).map_err(|_| ()))
+                })?;
+                out.push(if armed { 1 } else { 0 }).map_err(|_| ())?;
+            }
         };
 
         Ok(())
@@ -100,13 +112,16 @@ impl Command {
         use Command::*;
         match self {
             ToggleLed | GetMotionState => (), // No additional Info
-            StartMotor(motor) | StopMotor(motor) => out.push(motor.into()), // Just add the Motor Number
-            SendMotionState(angle_vel) => angle_vel.iter().for_each(|vel| {
-                vel.to_bits()
-                    .to_be_bytes()
-                    .iter()
-                    .for_each(|byte| out.push(*byte))
-            }),
+            StartMotor | StopMotor => (),
+            SendMotionState(angle_vel, armed) => {
+                angle_vel.iter().for_each(|vel| {
+                    vel.to_bits()
+                        .to_be_bytes()
+                        .iter()
+                        .for_each(|byte| out.push(*byte))
+                });
+                out.push(if armed { 1 } else { 0 });
+            }
         };
         out
     }
@@ -129,17 +144,9 @@ impl Command {
         match cmd {
             ToggleLed => Ok(ToggleLed),           // No additional Info
             GetMotionState => Ok(GetMotionState), // No additional Info
-            StartMotor(_) => Ok(StartMotor(
-                iter.next()
-                    .ok_or(())
-                    .and_then(|val| MotorPosition::try_from(*val))?,
-            )),
-            StopMotor(_) => Ok(StopMotor(
-                iter.next()
-                    .ok_or(())
-                    .and_then(|val| MotorPosition::try_from(*val))?,
-            )),
-            SendMotionState(_) => {
+            StartMotor => Ok(StartMotor),
+            StopMotor => Ok(StopMotor),
+            SendMotionState(_, _) => {
                 let mut buffer = [0_u8; 4];
                 let mut angle_vel = nalgebra::Vector3::<f32>::zeros();
                 for el in angle_vel.iter_mut() {
@@ -152,7 +159,17 @@ impl Command {
                     // Try to convert to a float
                     *el = f32::from_bits(u32::from_be_bytes(buffer.try_into().map_err(|_| ())?));
                 }
-                Ok(SendMotionState(angle_vel))
+                // Try to get armed state
+                let armed = iter.next().ok_or(()).and_then(|&val| {
+                    if val == 0 {
+                        Ok(false)
+                    } else if val == 1 {
+                        Ok(true)
+                    } else {
+                        Err(())
+                    }
+                })?;
+                Ok(SendMotionState(angle_vel, armed))
             }
         }
     }
@@ -214,10 +231,10 @@ impl core::convert::TryFrom<u8> for Command {
         use Command::*;
         match value {
             1 => Ok(ToggleLed),
-            10 => Ok(StartMotor(MotorPosition::All)),
-            11 => Ok(StopMotor(MotorPosition::All)),
+            10 => Ok(StartMotor),
+            11 => Ok(StopMotor),
             20 => Ok(GetMotionState),
-            21 => Ok(SendMotionState(nalgebra::Vector3::<f32>::zeros())),
+            21 => Ok(SendMotionState(nalgebra::Vector3::<f32>::zeros(), false)),
             _ => Err(()),
         }
     }
@@ -228,10 +245,10 @@ impl core::convert::Into<u8> for Command {
         use Command::*;
         match self {
             ToggleLed => 1,
-            StartMotor(_) => 10,
-            StopMotor(_) => 11,
+            StartMotor => 10,
+            StopMotor => 11,
             GetMotionState => 20,
-            SendMotionState(_) => 21,
+            SendMotionState(_, _) => 21,
         }
     }
 }
